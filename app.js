@@ -2,20 +2,22 @@ const { useState, useEffect, useMemo, useRef } = React;
 
 /* ── Firebase 설정 ── */
 const firebaseConfig = {
-    apiKey: "AIzaSyAEY-T-NRKEotVOaD5nastrhJDfd34SI6Y",
-    authDomain: "polyphonic-b906e.firebaseapp.com",
-    projectId: "polyphonic-b906e",
-    storageBucket: "polyphonic-b906e.firebasestorage.app",
-    messagingSenderId: "128348297020",
-    appId: "1:128348297020:web:b6e42bbe223ac41e087039",
-    measurementId: "G-ZNSYCM09SS"
+  apiKey: "AIzaSyBS_LX_alM7yNEqFngVKUhKrGRGZFC14BQ",
+  authDomain: "hwaso-3e4be.firebaseapp.com",
+  projectId: "hwaso-3e4be",
+  storageBucket: "hwaso-3e4be.firebasestorage.app",
+  messagingSenderId: "551881565674",
+  appId: "1:551881565674:web:092f3c862f18f221bdbe93",
+  measurementId: "G-8LH4KDFC89"
 };
 
 if (!firebase.apps.length) {
     firebase.initializeApp(firebaseConfig);
 }
+
 const auth = firebase.auth();
 const db = firebase.firestore();
+const storage  = firebase.storage();
 const provider = new firebase.auth.GoogleAuthProvider();
 
 /* ── Design System ── */
