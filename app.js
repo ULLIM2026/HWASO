@@ -267,8 +267,26 @@ function Polyphonic() {
                 setLights([]); setSounds([]); setTimes([]); setContexts([]); setArtists([]);
                 syncEnabled.current = false;
             }
-            syncEnabled.current = true;
-            setAuthLoading(false);
+          // 수정 후: 로그인 상태일 때만, 그리고 데이터 로드 후 다음 렌더링에서 활성화
+if (u) {
+    try {
+        const snap = await db.collection('users').doc(u.uid).get();
+        if (snap.exists) {
+            const d = snap.data();
+            if (d.musics) setMusics(d.musics);
+            // ... 나머지 동일
+        }
+    } catch (e) {
+        console.error("Firestore 로드 오류:", e);
+    }
+    // ✅ 로그인 + 로드 완료 후 여기서 활성화
+    setTimeout(() => { syncEnabled.current = true; }, 0);
+} else {
+    // ... 초기화
+    syncEnabled.current = false;
+}
+// syncEnabled.current = true; ← 이 줄을 삭제
+setAuthLoading(false);
         });
         return () => { clearTimeout(fallbackTimer); unsubscribe(); };
     }, []);
