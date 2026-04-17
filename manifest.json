@@ -1,8 +1,9 @@
 {
   "name": "HWASO",
   "short_name": "HWASO",
-  "description": "당신을 지나쳤던 것들을 직접 기록하세요.",
-  "start_url": "/",
+  "description": "영화 아카이빙 앱 — 영화, 빛, 소리, 시간, 맥락을 기록하세요.",
+  "start_url": "/HWASO/",
+  "scope": "/HWASO/",
   "display": "standalone",
   "background_color": "#1c1c1e",
   "theme_color": "#1c1c1e",
@@ -13,7 +14,7 @@
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
-    },
-   
+    }
+  ],
   "categories": ["lifestyle", "utilities"]
 }
