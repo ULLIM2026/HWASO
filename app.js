@@ -1,14 +1,29 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
 /* ── Firebase 설정 ── */
+
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-    apiKey: "AIzaSyAEY-T-NRKEotVOaD5nastrhJDfd34SI6Y",
-    authDomain: "polyphonic-b906e.firebaseapp.com",
-    projectId: "polyphonic-b906e",
-    storageBucket: "polyphonic-b906e.firebasestorage.app",
-    messagingSenderId: "128348297020",
-    appId: "1:128348297020:web:b6e42bbe223ac41e087039"
+  apiKey: "AIzaSyBS_LX_alM7yNEqFngVKUhKrGRGZFC14BQ",
+  authDomain: "hwaso-3e4be.firebaseapp.com",
+  databaseURL: "https://hwaso-3e4be-default-rtdb.firebaseio.com",
+  projectId: "hwaso-3e4be",
+  storageBucket: "hwaso-3e4be.firebasestorage.app",
+  messagingSenderId: "551881565674",
+  appId: "1:551881565674:web:092f3c862f18f221bdbe93",
+  measurementId: "G-8LH4KDFC89"
 };
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
 
 if (!firebase.apps.length) {
     firebase.initializeApp(firebaseConfig);
