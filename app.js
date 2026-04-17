@@ -234,6 +234,62 @@ function Polyphonic() {
     const [contexts,    setContexts]    = useState([]);
     const [artists,     setArtists]     = useState([]);
 
+    /* ═══════════════════════════════════════════════════════════
+       Firestore 헬퍼 — 개별 문서 저장 구조
+       컬렉션 구조:
+         users/{uid}/items/{itemId}      ← 모든 부모 카드
+         users/{uid}/subcards/{cardId}   ← imageCards / soundCards / characterCards
+    ═══════════════════════════════════════════════════════════ */
+
+    // 부모 카드에서 세부카드 배열을 분리해 저장하는 헬퍼
+    // subField: 'imageCards' | 'soundCards' | 'characterCards'
+    const saveItemWithSubcards = async (uid, item, subField) => {
+        const itemRef  = db.collection('users').doc(uid).collection('items').doc(String(item.id));
+        const subcards = item[subField] || [];
+
+        // 부모 문서: 세부카드 배열 제거 + subField명과 개수만 기록
+        const parentData = { ...item, [subField]: [], _subField: subField, _subcardCount: subcards.length };
+        await itemRef.set(parentData);
+
+        // 기존 세부카드 문서 모두 삭제 후 재작성 (순서 보장)
+        const existingSnap = await db.collection('users').doc(uid).collection('subcards')
+            .where('parentId', '==', String(item.id)).get();
+        const batch = db.batch();
+        existingSnap.docs.forEach(d => batch.delete(d.ref));
+        subcards.forEach((card, idx) => {
+            const ref = db.collection('users').doc(uid).collection('subcards')
+                .doc(`${item.id}_${idx}`);
+            batch.set(ref, { ...card, parentId: String(item.id), _index: idx, _subField: subField });
+        });
+        await batch.commit();
+    };
+
+    // 세부카드 없는 단순 아이템 저장
+    const saveSimpleItem = async (uid, item, collectionKey) => {
+        const ref = db.collection('users').doc(uid).collection('items').doc(String(item.id));
+        await ref.set({ ...item, _collectionKey: collectionKey });
+    };
+
+    // 아이템 삭제 (세부카드 포함)
+    const deleteItemFromFirestore = async (uid, itemId) => {
+        await db.collection('users').doc(uid).collection('items').doc(String(itemId)).delete();
+        const snap = await db.collection('users').doc(uid).collection('subcards')
+            .where('parentId', '==', String(itemId)).get();
+        if (!snap.empty) {
+            const batch = db.batch();
+            snap.docs.forEach(d => batch.delete(d.ref));
+            await batch.commit();
+        }
+    };
+
+    // 저장 디스패처 — 타입별로 적절한 저장 함수 선택
+    const persistItem = (uid, item, collectionKey) => {
+        if (collectionKey === 'lights')   return saveItemWithSubcards(uid, item, 'imageCards');
+        if (collectionKey === 'sounds')   return saveItemWithSubcards(uid, item, 'soundCards');
+        if (collectionKey === 'times')    return saveItemWithSubcards(uid, item, 'characterCards');
+        return saveSimpleItem(uid, item, collectionKey);
+    };
+
     useEffect(() => {
         // 5초 안에 auth 응답 없으면 강제로 로딩 해제 (네트워크 오류 대비)
         const fallbackTimer = setTimeout(() => {
@@ -245,63 +301,114 @@ function Polyphonic() {
             setUser(u);
             if (u) {
                 try {
-                    const snap = await db.collection('users').doc(u.uid).get();
-                    if (snap.exists) {
-                        const d = snap.data();
-                        if (d.musics)      setMusics(d.musics);
-                        if (d.composers)   setComposers(d.composers);
-                        if (d.genres)      setGenres(d.genres);
-                        if (d.instruments) setInstruments(d.instruments);
-                        if (d.concepts)    setConcepts(d.concepts);
-                        if (d.lights)      setLights(d.lights);
-                        if (d.sounds)      setSounds(d.sounds);
-                        if (d.times)       setTimes(d.times);
-                        if (d.contexts)    setContexts(d.contexts);
-                        if (d.artists)     setArtists(d.artists);
+                    // ── 부모 카드 로드 ──
+                    const itemsSnap = await db.collection('users').doc(u.uid).collection('items').get();
+                    // ── 세부카드 로드 ──
+                    const subSnap   = await db.collection('users').doc(u.uid).collection('subcards')
+                        .orderBy('_index').get();
+
+                    // 세부카드를 parentId별로 그룹핑
+                    const subMap = {};
+                    subSnap.docs.forEach(d => {
+                        const data = d.data();
+                        const pid  = data.parentId;
+                        if (!subMap[pid]) subMap[pid] = [];
+                        const { parentId, _index, _subField, ...cardData } = data;
+                        subMap[pid].push({ card: cardData, subField: _subField });
+                    });
+
+                    // 부모 카드에 세부카드 재결합
+                    const buckets = { musics:[], composers:[], genres:[], instruments:[], concepts:[], lights:[], sounds:[], times:[], contexts:[], artists:[] };
+                    itemsSnap.docs.forEach(d => {
+                        const data = d.data();
+                        const { _collectionKey, _subField, _subcardCount, ...item } = data;
+                        const key = _collectionKey || (_subField === 'imageCards' ? 'lights' : _subField === 'soundCards' ? 'sounds' : _subField === 'characterCards' ? 'times' : null);
+                        if (!key || !buckets[key]) return;
+                        // 세부카드 재결합
+                        if (_subField && subMap[String(item.id)]) {
+                            item[_subField] = subMap[String(item.id)].map(s => s.card);
+                        } else if (_subField) {
+                            item[_subField] = [];
+                        }
+                        buckets[key].push(item);
+                    });
+
+                    // 생성일 역순 정렬 (id = Date.now())
+                    Object.keys(buckets).forEach(k => buckets[k].sort((a,b) => b.id - a.id));
+
+                    setMusics(buckets.musics);
+                    setComposers(buckets.composers);
+                    setGenres(buckets.genres);
+                    setInstruments(buckets.instruments);
+                    setConcepts(buckets.concepts);
+                    setLights(buckets.lights);
+                    setSounds(buckets.sounds);
+                    setTimes(buckets.times);
+                    setContexts(buckets.contexts);
+                    setArtists(buckets.artists);
+
+                    // 레거시 단일문서 데이터 마이그레이션
+                    const legacySnap = await db.collection('users').doc(u.uid).get();
+                    if (legacySnap.exists) {
+                        const leg = legacySnap.data();
+                        const legacyKeys = ['musics','composers','genres','instruments','concepts','lights','sounds','times','contexts','artists'];
+                        const haLegacy = legacyKeys.some(k => leg[k] && leg[k].length > 0);
+                        if (haLegacy) {
+                            console.log('레거시 데이터 마이그레이션 시작...');
+                            const migBatch = [];
+                            for (const k of legacyKeys) {
+                                for (const item of (leg[k] || [])) {
+                                    // 이미 items 컬렉션에 있으면 건너뜀
+                                    const exists = buckets[k].some(x => x.id === item.id);
+                                    if (!exists) migBatch.push(persistItem(u.uid, item, k));
+                                }
+                            }
+                            await Promise.all(migBatch);
+                            // 마이그레이션 완료 후 레거시 문서 삭제
+                            await db.collection('users').doc(u.uid).delete();
+                            console.log('레거시 마이그레이션 완료');
+                            // 마이그레이션된 데이터 반영을 위해 다시 로드
+                            window.location.reload();
+                            return;
+                        }
                     }
                 } catch (e) {
                     console.error("Firestore 로드 오류:", e);
                 }
+                setTimeout(() => { syncEnabled.current = true; }, 0);
             } else {
                 setMusics([]); setComposers([]); setGenres([]); setInstruments([]); setConcepts([]);
                 setLights([]); setSounds([]); setTimes([]); setContexts([]); setArtists([]);
                 syncEnabled.current = false;
             }
-          // 수정 후: 로그인 상태일 때만, 그리고 데이터 로드 후 다음 렌더링에서 활성화
-if (u) {
-    try {
-        const snap = await db.collection('users').doc(u.uid).get();
-        if (snap.exists) {
-            const d = snap.data();
-            if (d.musics) setMusics(d.musics);
-            // ... 나머지 동일
-        }
-    } catch (e) {
-        console.error("Firestore 로드 오류:", e);
-    }
-    // ✅ 로그인 + 로드 완료 후 여기서 활성화
-    setTimeout(() => { syncEnabled.current = true; }, 0);
-} else {
-    // ... 초기화
-    syncEnabled.current = false;
-}
-// syncEnabled.current = true; ← 이 줄을 삭제
-setAuthLoading(false);
+            setAuthLoading(false);
         });
         return () => { clearTimeout(fallbackTimer); unsubscribe(); };
     }, []);
 
-    useEffect(() => {
-        if (!syncEnabled.current || !user) return;
+    // 저장은 이제 각 모달의 onSave에서 직접 호출 — 별도 sync useEffect 불필요
+    // saving 표시용 헬퍼
+    const saveItem = async (uid, item, collectionKey) => {
         setSaving(true);
-        const timer = setTimeout(() => {
-            db.collection('users').doc(user.uid)
-                .set({ musics, composers, genres, instruments, concepts, lights, sounds, times, contexts, artists })
-                .then(() => setSaving(false))
-                .catch(e => { console.error("저장 오류:", e); setSaving(false); });
-        }, 800);
-        return () => clearTimeout(timer);
-    }, [musics, composers, genres, instruments, concepts, lights, sounds, times, contexts, artists]);
+        try {
+            await persistItem(uid, item, collectionKey);
+        } catch(e) {
+            console.error("저장 오류:", e);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const deleteItem = async (uid, itemId) => {
+        setSaving(true);
+        try {
+            await deleteItemFromFirestore(uid, itemId);
+        } catch(e) {
+            console.error("삭제 오류:", e);
+        } finally {
+            setSaving(false);
+        }
+    };
 
     const [showModal, setShowModal] = useState({ music: false, comp: false, genre: false, instrument: false, concept: false, light: false, sound: false, time: false, context: false, artist: false });
     const [forms, setForms] = useState({ music: EMPTY_MUSIC, comp: EMPTY_COMPOSER, genre: EMPTY_GENRE, instrument: EMPTY_INSTRUMENT, concept: EMPTY_CONCEPT, light: EMPTY_LIGHT, sound: EMPTY_SOUND, time: EMPTY_TIME, context: EMPTY_CONTEXT, artist: EMPTY_ARTIST });
@@ -880,17 +987,18 @@ setAuthLoading(false);
                         }}
                         onDelete={() => {
                             if (confirm("삭제하시겠습니까?")) {
-                                if      (activeTab === "light")      { setLights(lights.filter(x => x.id !== selectedItem.id)); navigateTo("list","back"); return; }
-                            if      (activeTab === "instrument")  { setSounds(sounds.filter(x => x.id !== selectedItem.id)); navigateTo("list","back"); return; }
-                            if      (activeTab === "concept")     { setTimes(times.filter(x => x.id !== selectedItem.id)); navigateTo("list","back"); return; }
-                            if      (activeTab === "context")     { setContexts(contexts.filter(x => x.id !== selectedItem.id)); navigateTo("list","back"); return; }
-                            if      (activeTab === "composer")    { setArtists(artists.filter(x => x.id !== selectedItem.id)); navigateTo("list","back"); return; }
+                                const id = selectedItem.id;
+                                if (activeTab === "light")      { setLights(lights.filter(x => x.id !== id)); deleteItem(user.uid, id); navigateTo("list","back"); return; }
+                                if (activeTab === "instrument") { setSounds(sounds.filter(x => x.id !== id)); deleteItem(user.uid, id); navigateTo("list","back"); return; }
+                                if (activeTab === "concept")    { setTimes(times.filter(x => x.id !== id));   deleteItem(user.uid, id); navigateTo("list","back"); return; }
+                                if (activeTab === "context")    { setContexts(contexts.filter(x => x.id !== id)); deleteItem(user.uid, id); navigateTo("list","back"); return; }
+                                if (activeTab === "composer")   { setArtists(artists.filter(x => x.id !== id));  deleteItem(user.uid, id); navigateTo("list","back"); return; }
                                 const type = tabToType(activeTab);
-                                if      (type === "library")    setMusics(musics.filter(x => x.id !== selectedItem.id));
-                                else if (type === "composer")   setComposers(composers.filter(x => x.id !== selectedItem.id));
-                                else if (type === "genre")      setGenres(genres.filter(x => x.id !== selectedItem.id));
-                                else if (type === "instrument") setInstruments(instruments.filter(x => x.id !== selectedItem.id));
-                                else if (type === "concept")    setConcepts(concepts.filter(x => x.id !== selectedItem.id));
+                                if      (type === "library")    { setMusics(musics.filter(x => x.id !== id));           deleteItem(user.uid, id); }
+                                else if (type === "composer")   { setComposers(composers.filter(x => x.id !== id));     deleteItem(user.uid, id); }
+                                else if (type === "genre")      { setGenres(genres.filter(x => x.id !== id));           deleteItem(user.uid, id); }
+                                else if (type === "instrument") { setInstruments(instruments.filter(x => x.id !== id)); deleteItem(user.uid, id); }
+                                else if (type === "concept")    { setConcepts(concepts.filter(x => x.id !== id));       deleteItem(user.uid, id); }
                                 navigateTo("list","back");
                             }
                         }}
@@ -948,9 +1056,11 @@ setAuthLoading(false);
                 film={forms.music}
                 onChange={v => setForms({ ...forms, music: v })}
                 onSave={() => {
+                    const item = forms.music.id ? forms.music : { ...forms.music, id: Date.now() };
                     setMusics(forms.music.id
-                        ? musics.map(m => m.id === forms.music.id ? forms.music : m)
-                        : [{ ...forms.music, id: Date.now() }, ...musics]);
+                        ? musics.map(m => m.id === forms.music.id ? item : m)
+                        : [item, ...musics]);
+                    saveItem(user.uid, item, 'musics');
                     setShowModal({ ...showModal, music: false });
                 }}
                 onClose={() => setShowModal({ ...showModal, music: false })}
@@ -961,9 +1071,11 @@ setAuthLoading(false);
                 item={forms.light}
                 onChange={v => setForms({ ...forms, light: v })}
                 onSave={() => {
+                    const item = forms.light.id ? forms.light : { ...forms.light, id: Date.now() };
                     setLights(forms.light.id
-                        ? lights.map(l => l.id === forms.light.id ? forms.light : l)
-                        : [{ ...forms.light, id: Date.now() }, ...lights]);
+                        ? lights.map(l => l.id === forms.light.id ? item : l)
+                        : [item, ...lights]);
+                    saveItem(user.uid, item, 'lights');
                     setShowModal({ ...showModal, light: false });
                 }}
                 onClose={() => setShowModal({ ...showModal, light: false })}
@@ -974,9 +1086,11 @@ setAuthLoading(false);
                 item={forms.sound}
                 onChange={v => setForms({ ...forms, sound: v })}
                 onSave={() => {
+                    const item = forms.sound.id ? forms.sound : { ...forms.sound, id: Date.now() };
                     setSounds(forms.sound.id
-                        ? sounds.map(s => s.id === forms.sound.id ? forms.sound : s)
-                        : [{ ...forms.sound, id: Date.now() }, ...sounds]);
+                        ? sounds.map(s => s.id === forms.sound.id ? item : s)
+                        : [item, ...sounds]);
+                    saveItem(user.uid, item, 'sounds');
                     setShowModal({ ...showModal, sound: false, time: false });
                 }}
                 onClose={() => setShowModal({ ...showModal, sound: false })}
@@ -987,9 +1101,11 @@ setAuthLoading(false);
                 item={forms.time}
                 onChange={v => setForms({ ...forms, time: v })}
                 onSave={() => {
+                    const item = forms.time.id ? forms.time : { ...forms.time, id: Date.now() };
                     setTimes(forms.time.id
-                        ? times.map(t => t.id === forms.time.id ? forms.time : t)
-                        : [{ ...forms.time, id: Date.now() }, ...times]);
+                        ? times.map(t => t.id === forms.time.id ? item : t)
+                        : [item, ...times]);
+                    saveItem(user.uid, item, 'times');
                     setShowModal({ ...showModal, time: false });
                 }}
                 onClose={() => setShowModal({ ...showModal, time: false })}
@@ -1000,9 +1116,11 @@ setAuthLoading(false);
                 item={forms.context}
                 onChange={v => setForms({ ...forms, context: v })}
                 onSave={() => {
+                    const item = forms.context.id ? forms.context : { ...forms.context, id: Date.now() };
                     setContexts(forms.context.id
-                        ? contexts.map(c => c.id === forms.context.id ? forms.context : c)
-                        : [{ ...forms.context, id: Date.now() }, ...contexts]);
+                        ? contexts.map(c => c.id === forms.context.id ? item : c)
+                        : [item, ...contexts]);
+                    saveItem(user.uid, item, 'contexts');
                     setShowModal({ ...showModal, context: false });
                 }}
                 onClose={() => setShowModal({ ...showModal, context: false })}
@@ -1013,9 +1131,11 @@ setAuthLoading(false);
                 item={forms.artist}
                 onChange={v => setForms({ ...forms, artist: v })}
                 onSave={() => {
+                    const item = forms.artist.id ? forms.artist : { ...forms.artist, id: Date.now() };
                     setArtists(forms.artist.id
-                        ? artists.map(a => a.id === forms.artist.id ? forms.artist : a)
-                        : [{ ...forms.artist, id: Date.now() }, ...artists]);
+                        ? artists.map(a => a.id === forms.artist.id ? item : a)
+                        : [item, ...artists]);
+                    saveItem(user.uid, item, 'artists');
                     setShowModal({ ...showModal, artist: false });
                 }}
                 onClose={() => setShowModal({ ...showModal, artist: false })}
@@ -1037,7 +1157,12 @@ setAuthLoading(false);
                 <Input label="여담"  isArea value={forms.comp.anecdotes} onChange={v => setForms({ ...forms, comp: { ...forms.comp, anecdotes: v } })} />
                 <Input label="스크랩"       value={forms.comp.scraps}    onChange={v => setForms({ ...forms, comp: { ...forms.comp, scraps: v } })} />
                 <Input label="해시태그"     value={forms.comp.hashtags}  onChange={v => setForms({ ...forms, comp: { ...forms.comp, hashtags: v } })} />
-                <button onClick={() => { setComposers(forms.comp.id ? composers.map(c => c.id === forms.comp.id ? forms.comp : c) : [{ ...forms.comp, id: Date.now() }, ...composers]); setShowModal({ ...showModal, comp: false }); }} style={{ width: '100%', padding: 18, background: ACCENT, color: '#fff', border: 'none', borderRadius: 12, fontWeight: 800, cursor: 'pointer' }}>저장</button>
+                <button onClick={() => {
+                    const item = forms.comp.id ? forms.comp : { ...forms.comp, id: Date.now() };
+                    setComposers(forms.comp.id ? composers.map(c => c.id === forms.comp.id ? item : c) : [item, ...composers]);
+                    saveItem(user.uid, item, 'composers');
+                    setShowModal({ ...showModal, comp: false });
+                }} style={{ width: '100%', padding: 18, background: ACCENT, color: '#fff', border: 'none', borderRadius: 12, fontWeight: 800, cursor: 'pointer' }}>저장</button>
             </div></div>}
 
             {/* ══ 모달: 장르 ══ */}
@@ -1054,7 +1179,12 @@ setAuthLoading(false);
                 <Input label="여담" isArea value={forms.genre.anecdotes} onChange={v => setForms({ ...forms, genre: { ...forms.genre, anecdotes: v } })} />
                 <Input label="스크랩"       value={forms.genre.scraps}   onChange={v => setForms({ ...forms, genre: { ...forms.genre, scraps: v } })} />
                 <Input label="해시태그"     value={forms.genre.hashtags} onChange={v => setForms({ ...forms, genre: { ...forms.genre, hashtags: v } })} />
-                <button onClick={() => { setGenres(forms.genre.id ? genres.map(g => g.id === forms.genre.id ? forms.genre : g) : [{ ...forms.genre, id: Date.now() }, ...genres]); setShowModal({ ...showModal, genre: false }); }} style={{ width: '100%', padding: 18, background: ACCENT, color: '#fff', border: 'none', borderRadius: 12, fontWeight: 800, cursor: 'pointer' }}>저장</button>
+                <button onClick={() => {
+                    const item = forms.genre.id ? forms.genre : { ...forms.genre, id: Date.now() };
+                    setGenres(forms.genre.id ? genres.map(g => g.id === forms.genre.id ? item : g) : [item, ...genres]);
+                    saveItem(user.uid, item, 'genres');
+                    setShowModal({ ...showModal, genre: false });
+                }} style={{ width: '100%', padding: 18, background: ACCENT, color: '#fff', border: 'none', borderRadius: 12, fontWeight: 800, cursor: 'pointer' }}>저장</button>
             </div></div>}
 
             {/* ══ 모달: 악기 ══ */}
@@ -1074,7 +1204,12 @@ setAuthLoading(false);
                 <Input label="여담"    isArea value={forms.instrument.anecdotes} onChange={v => setForms({ ...forms, instrument: { ...forms.instrument, anecdotes: v } })} />
                 <Input label="스크랩"         value={forms.instrument.scraps}    onChange={v => setForms({ ...forms, instrument: { ...forms.instrument, scraps: v } })} />
                 <Input label="해시태그"       value={forms.instrument.hashtags}  onChange={v => setForms({ ...forms, instrument: { ...forms.instrument, hashtags: v } })} />
-                <button onClick={() => { setInstruments(forms.instrument.id ? instruments.map(i => i.id === forms.instrument.id ? forms.instrument : i) : [{ ...forms.instrument, id: Date.now() }, ...instruments]); setShowModal({ ...showModal, instrument: false }); }} style={{ width: '100%', padding: 18, background: ACCENT, color: '#fff', border: 'none', borderRadius: 12, fontWeight: 800, cursor: 'pointer' }}>저장</button>
+                <button onClick={() => {
+                    const item = forms.instrument.id ? forms.instrument : { ...forms.instrument, id: Date.now() };
+                    setInstruments(forms.instrument.id ? instruments.map(i => i.id === forms.instrument.id ? item : i) : [item, ...instruments]);
+                    saveItem(user.uid, item, 'instruments');
+                    setShowModal({ ...showModal, instrument: false });
+                }} style={{ width: '100%', padding: 18, background: ACCENT, color: '#fff', border: 'none', borderRadius: 12, fontWeight: 800, cursor: 'pointer' }}>저장</button>
             </div></div>}
 
             {/* ══ 모달: 개념 ══ */}
@@ -1087,7 +1222,12 @@ setAuthLoading(false);
                 <Input label="사례 및 여담" isArea value={forms.concept.anecdotes} onChange={v => setForms({ ...forms, concept: { ...forms.concept, anecdotes: v } })} />
                 <Input label="스크랩"              value={forms.concept.scraps}   onChange={v => setForms({ ...forms, concept: { ...forms.concept, scraps: v } })} />
                 <Input label="해시태그"            value={forms.concept.hashtags} onChange={v => setForms({ ...forms, concept: { ...forms.concept, hashtags: v } })} />
-                <button onClick={() => { setConcepts(forms.concept.id ? concepts.map(c => c.id === forms.concept.id ? forms.concept : c) : [{ ...forms.concept, id: Date.now() }, ...concepts]); setShowModal({ ...showModal, concept: false }); }} style={{ width: '100%', padding: 18, background: ACCENT, color: '#fff', border: 'none', borderRadius: 12, fontWeight: 800, cursor: 'pointer' }}>저장</button>
+                <button onClick={() => {
+                    const item = forms.concept.id ? forms.concept : { ...forms.concept, id: Date.now() };
+                    setConcepts(forms.concept.id ? concepts.map(c => c.id === forms.concept.id ? item : c) : [item, ...concepts]);
+                    saveItem(user.uid, item, 'concepts');
+                    setShowModal({ ...showModal, concept: false });
+                }} style={{ width: '100%', padding: 18, background: ACCENT, color: '#fff', border: 'none', borderRadius: 12, fontWeight: 800, cursor: 'pointer' }}>저장</button>
             </div></div>}
 
             {/* ══ 구성 분석 레이어 ══ */}
