@@ -1,14 +1,24 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
 /* ── Firebase 설정 ── */
+
+// Import the functions you need from the SDKs you need
+
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-    apiKey: "AIzaSyAEY-T-NRKEotVOaD5nastrhJDfd34SI6Y",
-    authDomain: "polyphonic-b906e.firebaseapp.com",
-    projectId: "polyphonic-b906e",
-    storageBucket: "polyphonic-b906e.firebasestorage.app",
-    messagingSenderId: "128348297020",
-    appId: "1:128348297020:web:b6e42bbe223ac41e087039"
+  apiKey: "AIzaSyBS_LX_alM7yNEqFngVKUhKrGRGZFC14BQ",
+  authDomain: "hwaso-3e4be.firebaseapp.com",
+  databaseURL: "https://hwaso-3e4be-default-rtdb.firebaseio.com",
+  projectId: "hwaso-3e4be",
+  storageBucket: "hwaso-3e4be.firebasestorage.app",
+  messagingSenderId: "551881565674",
+  appId: "1:551881565674:web:092f3c862f18f221bdbe93",
+  measurementId: "G-8LH4KDFC89"
 };
+
+// Initialize Firebase
+
 
 if (!firebase.apps.length) {
     firebase.initializeApp(firebaseConfig);
@@ -457,7 +467,7 @@ function Polyphonic() {
     if (authLoading) {
         return (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', flexDirection: 'column', gap: 16 }}>
-                <div style={{ fontWeight: 900, fontSize: 24 }}><span style={{ color:"#E8472A" }}>HW</span><span style={{ color:"#4CD44A" }}>A</span><span style={{ color:"#5DD8F0" }}>So</span></div>
+                <div style={{ fontWeight: 900, fontSize: 24, color: "#4CD44A" }}>HWASO</div>
                 <div style={{ fontSize: 13, color: '#666' }}>로딩 중...</div>
             </div>
         );
@@ -468,7 +478,7 @@ function Polyphonic() {
             <div>
                 <style>{globalStyle}</style>
                 <div className="login-screen">
-                    <div style={{ fontWeight: 900, fontSize: 36, marginBottom: 8 }}><span style={{ color:"#E8472A" }}>HW</span><span style={{ color:"#4CD44A" }}>A</span><span style={{ color:"#5DD8F0" }}>So</span></div>
+                    <div style={{ fontWeight: 900, fontSize: 36, marginBottom: 8, color: "#4CD44A" }}>HWASO</div>
                     <div style={{ fontSize: 14, color: '#888', marginBottom: 48 }}>영화 아카이빙 앱</div>
                     <button className="login-btn" onClick={() => auth.signInWithPopup(provider)}>
                         <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.36-8.16 2.36-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
@@ -490,7 +500,7 @@ function Polyphonic() {
             <header>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px", height: 55 }}>
                     <div onClick={() => { setActiveTab("library"); navigateTo("list","back"); setSearchQuery(""); }} style={{ cursor: "pointer", fontWeight: 900, fontSize: 20 }}>
-                        <span style={{ color:"#E8472A" }}>HW</span><span style={{ color:"#4CD44A" }}>A</span><span style={{ color:"#5DD8F0" }}>So</span>
+                        <span style={{ color:"#4CD44A" }}>HWASO</span>
                         {saving && <span className="saving-dot" title="저장 중..." />}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
